@@ -1,7 +1,7 @@
 """
 短信监听器
 
-持续监听 CPE 短信并转发通知
+参考: https://gitee.com/upchr/fiberhome-cpe-sms
 """
 
 import time
@@ -29,37 +29,18 @@ class BarkNotifier(Notifier):
     """Bark 推送通知器"""
     
     def __init__(self, bark_key: str, server: str = "https://api.day.app"):
-        """
-        初始化 Bark 通知器
-        
-        Args:
-            bark_key: Bark 推送 Key
-            server: Bark 服务器地址
-        """
         self.bark_key = bark_key
         self.server = server.rstrip("/")
     
     def notify(self, title: str, content: str, level: str = "timeSensitive", **kwargs) -> bool:
-        """
-        发送 Bark 通知
-        
-        Args:
-            title: 标题
-            content: 内容
-            level: 通知级别
-        """
         import urllib.parse
         import urllib.request
         
         try:
-            # URL 编码
             escaped_title = urllib.parse.quote(title)
             escaped_content = urllib.parse.quote(content)
-            
-            # 构造 URL
             url = f"{self.server}/{self.bark_key}/{escaped_title}/{escaped_content}?level={level}"
             
-            # 发送请求
             req = urllib.request.Request(url)
             with urllib.request.urlopen(req, timeout=10) as resp:
                 result = resp.read().decode('utf-8')
@@ -74,38 +55,17 @@ class WebhookNotifier(Notifier):
     """Webhook 通知器"""
     
     def __init__(self, webhook_url: str, method: str = "POST"):
-        """
-        初始化 Webhook 通知器
-        
-        Args:
-            webhook_url: Webhook URL
-            method: HTTP 方法
-        """
         self.webhook_url = webhook_url
         self.method = method.upper()
     
     def notify(self, title: str, content: str, **kwargs) -> bool:
-        """发送 Webhook 通知"""
         import json
         import urllib.request
         
         try:
-            data = json.dumps({
-                "title": title,
-                "content": content,
-                **kwargs
-            }).encode('utf-8')
-            
-            req = urllib.request.Request(
-                self.webhook_url,
-                data=data,
-                headers={"Content-Type": "application/json"},
-                method=self.method
-            )
-            
+            data = json.dumps({"title": title, "content": content, **kwargs}).encode('utf-8')
+            req = urllib.request.Request(self.webhook_url, data=data, headers={"Content-Type": "application/json"}, method=self.method)
             with urllib.request.urlopen(req, timeout=10) as resp:
-                result = resp.read().decode('utf-8')
-                logger.debug(f"Webhook 通知结果: {result}")
                 return True
         except Exception as e:
             logger.error(f"Webhook 通知失败: {e}")
@@ -113,18 +73,9 @@ class WebhookNotifier(Notifier):
 
 
 class FeishuNotifier(Notifier):
-    """飞书消息通知器（应用机器人）"""
+    """飞书消息通知器"""
     
     def __init__(self, app_id: str, app_secret: str, receive_id: str, receive_id_type: str = "open_id"):
-        """
-        初始化飞书通知器（应用机器人方式）
-        
-        Args:
-            app_id: 飞书应用 ID
-            app_secret: 飞书应用密钥
-            receive_id: 接收者 ID
-            receive_id_type: 接收者 ID 类型 (open_id, user_id, chat_id)
-        """
         self.app_id = app_id
         self.app_secret = app_secret
         self.receive_id = receive_id
@@ -133,91 +84,39 @@ class FeishuNotifier(Notifier):
         self._token_expire_time: float = 0
     
     def _get_tenant_access_token(self) -> str:
-        """获取 tenant_access_token"""
         import json
         import urllib.request
         
-        # 检查是否需要刷新 token
         if self._tenant_access_token and time.time() < self._token_expire_time:
             return self._tenant_access_token
         
         try:
             url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
-            data = json.dumps({
-                "app_id": self.app_id,
-                "app_secret": self.app_secret
-            }).encode('utf-8')
-            
-            req = urllib.request.Request(
-                url,
-                data=data,
-                headers={"Content-Type": "application/json"},
-                method="POST"
-            )
-            
+            data = json.dumps({"app_id": self.app_id, "app_secret": self.app_secret}).encode('utf-8')
+            req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
             with urllib.request.urlopen(req, timeout=10) as resp:
                 result = json.loads(resp.read().decode('utf-8'))
-                
                 if result.get("code") == 0:
                     self._tenant_access_token = result["tenant_access_token"]
-                    # 提前 5 分钟过期
                     self._token_expire_time = time.time() + result.get("expire", 7200) - 300
                     return self._tenant_access_token
-                else:
-                    raise Exception(f"获取 token 失败: {result.get('msg')}")
-                    
         except Exception as e:
             logger.error(f"获取飞书 token 失败: {e}")
-            raise
+        return ""
     
     def notify(self, title: str, content: str, **kwargs) -> bool:
-        """
-        发送飞书消息
-        
-        Args:
-            title: 消息标题（用作卡片标题）
-            content: 消息内容
-        """
         import json
         import urllib.request
         
         try:
             token = self._get_tenant_access_token()
-            
-            # 构造消息内容（使用文本消息）
-            message_content = json.dumps({
-                "text": f"【{title}】\n\n{content}"
-            }, ensure_ascii=False)
-            
-            # 构造请求体
-            data = json.dumps({
-                "receive_id": self.receive_id,
-                "msg_type": "text",
-                "content": message_content
-            }, ensure_ascii=False).encode('utf-8')
-            
+            message_content = json.dumps({"text": f"【{title}】\n\n{content}"}, ensure_ascii=False)
+            data = json.dumps({"receive_id": self.receive_id, "msg_type": "text", "content": message_content}, ensure_ascii=False).encode('utf-8')
             url = f"https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type={self.receive_id_type}"
-            
-            req = urllib.request.Request(
-                url,
-                data=data,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json"
-                },
-                method="POST"
-            )
-            
+            req = urllib.request.Request(url, data=data, headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, method="POST")
             with urllib.request.urlopen(req, timeout=10) as resp:
                 result = json.loads(resp.read().decode('utf-8'))
-                
-                if result.get("code") == 0:
-                    logger.debug(f"飞书消息发送成功")
-                    return True
-                else:
-                    logger.error(f"飞书消息发送失败: {result.get('msg')}")
-                    return False
-                    
+                return result.get("code") == 0
         except Exception as e:
             logger.error(f"飞书通知失败: {e}")
             return False
@@ -227,53 +126,19 @@ class FeishuWebhookNotifier(Notifier):
     """飞书 Webhook 机器人通知器"""
     
     def __init__(self, webhook_url: str):
-        """
-        初始化飞书 Webhook 机器人通知器
-        
-        Args:
-            webhook_url: Webhook URL，格式如 https://open.feishu.cn/open-apis/bot/v2/hook/xxx
-        """
         self.webhook_url = webhook_url
     
     def notify(self, title: str, content: str, **kwargs) -> bool:
-        """
-        发送飞书 Webhook 消息
-        
-        Args:
-            title: 消息标题
-            content: 消息内容
-        """
         import json
         import urllib.request
         
         try:
-            # 构造文本消息
             message_text = f"【{title}】\n\n{content}"
-            
-            data = json.dumps({
-                "msg_type": "text",
-                "content": {
-                    "text": message_text
-                }
-            }, ensure_ascii=False).encode('utf-8')
-            
-            req = urllib.request.Request(
-                self.webhook_url,
-                data=data,
-                headers={"Content-Type": "application/json"},
-                method="POST"
-            )
-            
+            data = json.dumps({"msg_type": "text", "content": {"text": message_text}}, ensure_ascii=False).encode('utf-8')
+            req = urllib.request.Request(self.webhook_url, data=data, headers={"Content-Type": "application/json"}, method="POST")
             with urllib.request.urlopen(req, timeout=10) as resp:
                 result = json.loads(resp.read().decode('utf-8'))
-                
-                if result.get("StatusCode") == 0 or result.get("code") == 0:
-                    logger.debug(f"飞书 Webhook 消息发送成功")
-                    return True
-                else:
-                    logger.error(f"飞书 Webhook 消息发送失败: {result}")
-                    return False
-                    
+                return result.get("StatusCode") == 0 or result.get("code") == 0
         except Exception as e:
             logger.error(f"飞书 Webhook 通知失败: {e}")
             return False
@@ -283,16 +148,7 @@ class SMSWatcher:
     """
     短信监听器
     
-    持续监听 CPE 短信并转发通知
-    
-    使用方法:
-        watcher = SMSWatcher(
-            host="http://192.168.1.1",
-            username="admin",
-            password="password",
-            notifiers=[BarkNotifier("your-bark-key")]
-        )
-        watcher.start()
+    参考: https://gitee.com/upchr/fiberhome-cpe-sms
     """
     
     def __init__(
@@ -306,19 +162,6 @@ class SMSWatcher:
         on_logout: Optional[Callable[[], None]] = None,
         wait_after_logout: float = 600.0
     ):
-        """
-        初始化短信监听器
-        
-        Args:
-            host: CPE 地址
-            username: 用户名
-            password: 密码
-            notifiers: 通知器列表
-            check_interval: 检查间隔（秒）
-            on_sms: 收到新短信时的回调函数
-            on_logout: 被登出时的回调函数
-            wait_after_logout: 被登出后等待时间（秒）
-        """
         self.host = host
         self.username = username
         self.password = password
@@ -334,17 +177,13 @@ class SMSWatcher:
         self._last_login_time: Optional[float] = None
     
     def add_notifier(self, notifier: Notifier):
-        """添加通知器"""
         self.notifiers.append(notifier)
     
     def _send_notification(self, sms: SMSMessage):
-        """发送通知"""
         title = f"短信来自 {sms.phone}"
-        content = sms.content
-        
         for notifier in self.notifiers:
             try:
-                notifier.notify(title, content, time=sms.time)
+                notifier.notify(title, sms.content, time=sms.time)
                 logger.info(f"已发送通知: {title}")
             except Exception as e:
                 logger.error(f"发送通知失败: {e}")
@@ -369,7 +208,7 @@ class SMSWatcher:
                     logger.error(f"回调函数执行失败: {e}")
     
     def _run(self):
-        """运行监听循环"""
+        """运行监听循环（参考 Go 实现）"""
         while self._running:
             try:
                 # 登录
@@ -392,14 +231,13 @@ class SMSWatcher:
                 if not heartbeat_ok:
                     logger.warning("心跳失败，可能被登出")
                     
-                    # 调用回调
                     if self.on_logout:
                         self.on_logout()
                     
                     # 判断是否需要等待
                     if self._last_login_time:
                         elapsed = time.time() - self._last_login_time
-                        # 如果是会话过期（4-5分钟），立即重新登录
+                        # 会话过期（4-5分钟），立即重新登录
                         if 4 * 60 < elapsed < 5 * 60:
                             logger.info("会话过期，立即重新登录")
                         else:
@@ -408,7 +246,7 @@ class SMSWatcher:
                     
                     continue
                 
-                # 检查新短信
+                # 检查新短信（GET 请求）
                 if self._client.get_new_sms_flag():
                     sms_list = self._client.get_unread_sms()
                     if sms_list:
@@ -422,12 +260,7 @@ class SMSWatcher:
                 time.sleep(5)
     
     def start(self, blocking: bool = True):
-        """
-        启动监听
-        
-        Args:
-            blocking: 是否阻塞当前线程
-        """
+        """启动监听"""
         self._running = True
         
         if blocking:
