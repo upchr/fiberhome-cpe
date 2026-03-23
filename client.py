@@ -80,11 +80,11 @@ class CPEClient:
         # 获取新的 sessionid
         sessionid = self._get_sessionid()
         
-        # 构造请求体
+        # 构造请求体（关键：添加 sessionid 字段）
         body = {
             "dataObj": data,
             "ajaxmethod": method_name,
-            "sessionid": sessionid
+            "sessionid": sessionid  # 必须添加这个字段！
         }
         body_json = json.dumps(body, ensure_ascii=False)
         
@@ -192,9 +192,25 @@ class CPEClient:
     def get_device_info(self) -> DeviceInfo:
         """获取设备信息"""
         try:
-            result = self._api_get("get_device_info", no_check=True)
-            if result:
-                data = json.loads(result)
+            # 使用 POST 请求到 FHNCAPIS（nocheck）
+            sessionid = self._get_sessionid()
+            
+            body = {
+                "dataObj": None,
+                "ajaxmethod": "get_device_info",
+                "sessionid": sessionid
+            }
+            body_json = json.dumps(body, ensure_ascii=False)
+            encrypted = AESEncryptor.encrypt(body_json, sessionid[:16])
+            
+            url = f"{self.base_url}/api/tmp/FHNCAPIS?ajaxmethod=get_device_info"
+            resp = self.session.post(url, data=encrypted, headers={
+                "Content-Type": "application/json"
+            }, timeout=30)
+            
+            if resp.text.strip():
+                decrypted = AESEncryptor.decrypt(resp.text.strip(), sessionid[:16])
+                data = json.loads(decrypted)
                 return DeviceInfo.from_dict(data)
         except Exception as e:
             logger.error(f"获取设备信息失败: {e}")
