@@ -11,8 +11,8 @@ import logging
 from typing import Optional, Dict, Any, List, Tuple
 from urllib.parse import urljoin
 
-from .crypto import AESEncryptor
-from .models import (
+from crypto import AESEncryptor
+from models import (
     DeviceInfo, SMSMessage, WiFiInfo, ConnectedDevice, 
     SignalInfo, DataUsage, NetworkInfo
 )

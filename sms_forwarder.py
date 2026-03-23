@@ -11,10 +11,10 @@ import logging
 import argparse
 from pathlib import Path
 
-# 添加父目录到路径
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# 添加当前目录到路径
+sys.path.insert(0, str(Path(__file__).parent))
 
-from cpe_api import SMSWatcher, BarkNotifier, WebhookNotifier, FeishuNotifier, FeishuWebhookNotifier
+from watcher import SMSWatcher, BarkNotifier, WebhookNotifier, FeishuNotifier, FeishuWebhookNotifier
 
 # 尝试加载 dotenv
 try:

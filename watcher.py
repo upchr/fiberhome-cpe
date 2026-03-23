@@ -10,8 +10,8 @@ import threading
 from typing import Callable, Optional, List
 from abc import ABC, abstractmethod
 
-from .client import CPEClient
-from .models import SMSMessage
+from client import CPEClient
+from models import SMSMessage
 
 logger = logging.getLogger(__name__)
 
