@@ -332,6 +332,7 @@ class SMSWatcher:
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._last_login_time: Optional[float] = None
+        self._processed_sms_ids: set = set()  # 已处理的短信 ID
     
     def add_notifier(self, notifier: Notifier):
         """添加通知器"""
@@ -352,14 +353,17 @@ class SMSWatcher:
     def _handle_new_sms(self, sms_list: List[SMSMessage]):
         """处理新短信"""
         for sms in sms_list:
+            # 检查是否已处理
+            if sms.id in self._processed_sms_ids:
+                continue
+            
             logger.info(f"新短信: [{sms.time}] {sms.phone}: {sms.content[:50]}...")
+            
+            # 标记为已处理
+            self._processed_sms_ids.add(sms.id)
             
             # 发送通知
             self._send_notification(sms)
-            
-            # 标记已读
-            if sms.id:
-                self._client.mark_sms_read(sms.id)
             
             # 调用回调
             if self.on_sms:
@@ -408,11 +412,13 @@ class SMSWatcher:
                     
                     continue
                 
-                # 检查新短信
-                if self._client.get_new_sms_flag():
-                    sms_list = self._client.get_unread_sms()
-                    if sms_list:
-                        self._handle_new_sms(sms_list)
+                # 检查新短信（直接获取短信列表）
+                sms_list = self._client.get_sms_list()
+                if sms_list:
+                    # 过滤出未处理的短信
+                    new_sms = [sms for sms in sms_list if sms.id and sms.id not in self._processed_sms_ids]
+                    if new_sms:
+                        self._handle_new_sms(new_sms)
                 
                 # 等待下次检查
                 time.sleep(self.check_interval)
