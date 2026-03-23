@@ -193,11 +193,63 @@ class CPEClient:
         """获取设备信息"""
         try:
             result = self._api_get("get_device_info", no_check=True)
-            data = json.loads(result)
-            return DeviceInfo.from_dict(data)
+            if result:
+                data = json.loads(result)
+                return DeviceInfo.from_dict(data)
         except Exception as e:
             logger.error(f"获取设备信息失败: {e}")
-            return DeviceInfo()
+        return DeviceInfo()
+    
+    def get_cpe_status(self) -> Dict[str, Any]:
+        """
+        获取 CPE 完整状态信息
+        
+        返回设备信息页面的所有数据，包括：
+        - 产品名称、型号、序列号
+        - 软件版本、硬件版本
+        - 运行时间、CPU 温度
+        - LAN IP 等
+        """
+        try:
+            result = self._api_get("get_device_info", no_check=True)
+            if result:
+                return json.loads(result)
+        except Exception as e:
+            logger.error(f"获取 CPE 状态失败: {e}")
+        return {}
+    
+    def get_runtime(self) -> str:
+        """
+        获取设备运行时间
+        
+        Returns:
+            运行时间字符串，如 "16天 22小时 12分钟 42秒"
+        """
+        try:
+            result = self._api_get("get_device_info", no_check=True)
+            if result:
+                data = json.loads(result)
+                # 运行时间可能在 uptime 或 runtime 字段
+                return data.get("uptime", data.get("runtime", ""))
+        except Exception as e:
+            logger.error(f"获取运行时间失败: {e}")
+        return ""
+    
+    def get_cpu_temperature(self) -> str:
+        """
+        获取 CPU 温度
+        
+        Returns:
+            CPU 温度字符串，如 "35.5 ℃"
+        """
+        try:
+            result = self._api_get("get_device_info", no_check=True)
+            if result:
+                data = json.loads(result)
+                return data.get("cpu_temp", data.get("temperature", ""))
+        except Exception as e:
+            logger.error(f"获取 CPU 温度失败: {e}")
+        return ""
     
     # ==================== 网络状态 ====================
     

@@ -13,6 +13,13 @@ class DeviceInfo:
     model_name: str = ""
     operator_name: str = ""
     serial_number: str = ""
+    hardware_version: str = ""
+    # 新增字段
+    product_name: str = ""
+    device_model: str = ""
+    uptime: str = ""
+    cpu_temp: str = ""
+    lan_ip: str = ""
     firmware_version: str = ""
     mac_address: str = ""
     imei: str = ""
