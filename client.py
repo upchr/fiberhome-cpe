@@ -47,6 +47,13 @@ class CPEClient:
         """
         self.base_url = base_url.rstrip("/")
         self.session = requests.Session()
+        self.session.headers.update({
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Content-Type": "application/json; charset=utf-8",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": f"{self.base_url}/main.html",
+            "Origin": self.base_url
+        })
         self._logged_in = False
         
     def _get_sessionid(self) -> str:
@@ -56,55 +63,79 @@ class CPEClient:
         data = resp.json()
         return data.get("sessionid", "")
     
-    def _api_get(self, method_name: str, no_check: bool = False) -> str:
+    def _api_get(self, path: str) -> str:
         """
-        发送 GET 请求到 API
+        发送 GET 请求
         
         Args:
-            method_name: API 方法名
-            no_check: 是否使用不检查的 API 路径
+            path: API 路径，如 "IS_LOGGED_IN" 或 "heartbeat"
         """
-        path = f"/api/tmp/FH{'NC' if no_check else ''}APIS?ajaxmethod={method_name}"
-        url = f"{self.base_url}{path}"
+        url = f"{self.base_url}/api/tmp/{path}"
         resp = self.session.get(url, timeout=30)
         return resp.text.strip()
     
-    def _api_post(self, method_name: str, data: Any = None) -> str:
+    def _api_post_nocheck(self, method_name: str, data: Any = None) -> Dict[str, Any]:
         """
-        发送加密的 POST 请求到 API
+        发送 POST 请求到 FHNCAPIS（不需要验证）
         
         Args:
             method_name: API 方法名
             data: 请求数据
         """
-        # 获取新的 sessionid
         sessionid = self._get_sessionid()
         
-        # 构造请求体（关键：添加 sessionid 字段）
         body = {
             "dataObj": data,
             "ajaxmethod": method_name,
-            "sessionid": sessionid  # 必须添加这个字段！
+            "sessionid": sessionid
         }
         body_json = json.dumps(body, ensure_ascii=False)
-        
-        # 加密
         encrypted = AESEncryptor.encrypt(body_json, sessionid[:16])
         
-        # 发送请求
-        url = f"{self.base_url}/api/tmp/FHAPIS?ajaxmethod={method_name}"
-        resp = self.session.post(url, data=encrypted, headers={
-            "Content-Type": "application/json"
-        }, timeout=30)
+        url = f"{self.base_url}/api/tmp/FHNCAPIS?ajaxmethod={method_name}"
+        resp = self.session.post(url, data=encrypted, timeout=30)
         
-        # 解密响应
         if resp.text.strip():
             try:
-                return AESEncryptor.decrypt(resp.text.strip(), sessionid[:16])
+                decrypted = AESEncryptor.decrypt(resp.text.strip(), sessionid[:16])
+                return json.loads(decrypted)
+            except:
+                pass
+        return {}
+    
+    def _api_post_encrypted(self, method_name: str, data: Dict[str, str]) -> Dict[str, Any]:
+        """
+        发送加密的 POST 请求到 FHAPIS
+        
+        用于获取敏感数据（温度、信号、SIM 信息等）
+        
+        Args:
+            method_name: API 方法名，如 "get_value_by_xmlnode"
+            data: XML 路径字典，如 {"Temperature": "X_FH_MobileNetwork.Temperature.Modem5GTemperature"}
+            
+        Returns:
+            解密后的响应数据
+        """
+        sessionid = self._get_sessionid()
+        
+        body = {
+            "dataObj": data,
+            "ajaxmethod": method_name,
+            "sessionid": sessionid
+        }
+        body_json = json.dumps(body, ensure_ascii=False)
+        encrypted = AESEncryptor.encrypt(body_json, sessionid[:16])
+        
+        url = f"{self.base_url}/api/tmp/FHAPIS?_={int(time.time() * 1000)}"
+        resp = self.session.post(url, data=encrypted, timeout=30)
+        
+        if resp.text.strip():
+            try:
+                decrypted = AESEncryptor.decrypt(resp.text.strip(), sessionid[:16])
+                return json.loads(decrypted)
             except Exception as e:
-                logger.debug(f"解密失败: {e}")
-                return resp.text.strip()
-        return ""
+                logger.error(f"解密失败: {e}")
+        return {}
     
     # ==================== 登录/登出 ====================
     
@@ -119,25 +150,20 @@ class CPEClient:
         Returns:
             (是否成功, 消息)
         """
-        # 获取 sessionid
         sessionid = self._get_sessionid()
         if not sessionid:
             return False, "获取 sessionid 失败"
         
-        # 构造请求体
         body = {
             "dataObj": {"username": username, "password": password},
             "ajaxmethod": "DO_WEB_LOGIN",
             "sessionid": sessionid
         }
         body_json = json.dumps(body, ensure_ascii=False)
-        
-        # 加密并发送
         encrypted = AESEncryptor.encrypt(body_json, sessionid[:16])
+        
         url = f"{self.base_url}/api/sign/DO_WEB_LOGIN?_={int(time.time() * 1000)}"
-        resp = self.session.post(url, data=encrypted, headers={
-            "Content-Type": "application/json"
-        }, timeout=30)
+        resp = self.session.post(url, data=encrypted, timeout=30)
         
         result = resp.text.strip()
         parts = result.split("|")
@@ -172,130 +198,250 @@ class CPEClient:
     def is_logged_in(self) -> bool:
         """检查是否已登录"""
         try:
-            url = f"{self.base_url}/api/tmp/IS_LOGGED_IN"
-            resp = self.session.get(url, timeout=30)
-            return resp.text.strip() == "1"
+            result = self._api_get("IS_LOGGED_IN")
+            return result == "1"
         except:
             return False
     
     def heartbeat(self) -> bool:
         """发送心跳"""
         try:
-            url = f"{self.base_url}/api/tmp/heartbeat"
-            resp = self.session.get(url, timeout=30)
-            return resp.text.strip() == "true"
+            result = self._api_get("heartbeat")
+            return result == "true"
         except:
             return False
     
     # ==================== 设备信息 ====================
     
     def get_device_info(self) -> DeviceInfo:
-        """获取设备信息"""
+        """获取设备基本信息"""
         try:
-            # 使用 POST 请求到 FHNCAPIS（nocheck）
-            sessionid = self._get_sessionid()
-            
-            body = {
-                "dataObj": None,
-                "ajaxmethod": "get_device_info",
-                "sessionid": sessionid
-            }
-            body_json = json.dumps(body, ensure_ascii=False)
-            encrypted = AESEncryptor.encrypt(body_json, sessionid[:16])
-            
-            url = f"{self.base_url}/api/tmp/FHNCAPIS?ajaxmethod=get_device_info"
-            resp = self.session.post(url, data=encrypted, headers={
-                "Content-Type": "application/json"
-            }, timeout=30)
-            
-            if resp.text.strip():
-                decrypted = AESEncryptor.decrypt(resp.text.strip(), sessionid[:16])
-                data = json.loads(decrypted)
-                return DeviceInfo.from_dict(data)
+            data = self._api_post_nocheck("get_device_info")
+            return DeviceInfo.from_dict(data)
         except Exception as e:
             logger.error(f"获取设备信息失败: {e}")
         return DeviceInfo()
     
-    def get_cpe_status(self) -> Dict[str, Any]:
+    def get_device_details(self) -> Dict[str, Any]:
         """
-        获取 CPE 完整状态信息
+        获取设备详细信息（温度、CPU、内存、运行时间等）
         
-        返回设备信息页面的所有数据，包括：
-        - 产品名称、型号、序列号
-        - 软件版本、硬件版本
-        - 运行时间、CPU 温度
-        - LAN IP 等
+        Returns:
+            {
+                "Modem5GTemperature": "35513",  # 需除以 1000
+                "Modem4GTemperature": "36904",  # 需除以 1000
+                "SerialNumber": "MTRTGJ401781ACAB20",
+                "SoftwareVersion": "RP0204",
+                "HardwareVersion": "WKE2.094.408A01",
+                "CPUUsage": "29",
+                "MemoryTotal": "1048576",
+                "MemoryFree": "458334",
+                "UpTime": "1469051"  # 秒
+            }
         """
+        xml_paths = {
+            "Modem5GTemperature": "X_FH_MobileNetwork.Temperature.Modem5GTemperature",
+            "Modem4GTemperature": "X_FH_MobileNetwork.Temperature.Modem4GTemperature",
+            "SerialNumber": "DeviceInfo.SerialNumber",
+            "SoftwareVersion": "DeviceInfo.SoftwareVersion",
+            "HardwareVersion": "DeviceInfo.HardwareVersion",
+            "ModelName": "DeviceInfo.ModelName",
+            "Manufacturer": "DeviceInfo.Manufacturer",
+            "CPUUsage": "DeviceInfo.ProcessStatus.CPUUsage",
+            "MemoryTotal": "DeviceInfo.MemoryStatus.Total",
+            "MemoryFree": "DeviceInfo.MemoryStatus.Free",
+            "UpTime": "DeviceInfo.UpTime"
+        }
+        
         try:
-            result = self._api_get("get_device_info", no_check=True)
-            if result:
-                return json.loads(result)
+            return self._api_post_encrypted("get_value_by_xmlnode", xml_paths)
         except Exception as e:
-            logger.error(f"获取 CPE 状态失败: {e}")
+            logger.error(f"获取设备详细信息失败: {e}")
+            return {}
+    
+    def get_temperature(self) -> Dict[str, float]:
+        """
+        获取温度信息
+        
+        Returns:
+            {"5g": 35.5, "4g": 36.9} 温度单位：摄氏度
+        """
+        data = self.get_device_details()
+        result = {}
+        
+        for key, xml_key in [("5g", "Modem5GTemperature"), ("4g", "Modem4GTemperature")]:
+            val = data.get(xml_key)
+            if val:
+                try:
+                    result[key] = int(val) / 1000
+                except:
+                    pass
+        
+        return result
+    
+    def get_system_usage(self) -> Dict[str, float]:
+        """
+        获取系统使用率
+        
+        Returns:
+            {"cpu": 29.0, "memory": 56.29} 单位：百分比
+        """
+        data = self.get_device_details()
+        result = {}
+        
+        cpu = data.get("CPUUsage")
+        if cpu:
+            try:
+                result["cpu"] = float(cpu)
+            except:
+                pass
+        
+        mem_total = data.get("MemoryTotal")
+        mem_free = data.get("MemoryFree")
+        if mem_total and mem_free:
+            try:
+                result["memory"] = (int(mem_total) - int(mem_free)) / int(mem_total) * 100
+            except:
+                pass
+        
+        return result
+    
+    def get_uptime(self) -> Dict[str, int]:
+        """
+        获取运行时间
+        
+        Returns:
+            {"days": 17, "hours": 0, "minutes": 4, "seconds": 11, "total_seconds": 1469051}
+        """
+        data = self.get_device_details()
+        
+        uptime = data.get("UpTime")
+        if uptime:
+            try:
+                seconds = int(uptime)
+                return {
+                    "days": seconds // 86400,
+                    "hours": (seconds % 86400) // 3600,
+                    "minutes": (seconds % 3600) // 60,
+                    "seconds": seconds % 60,
+                    "total_seconds": seconds
+                }
+            except:
+                pass
+        
         return {}
     
-    def get_runtime(self) -> str:
+    # ==================== SIM 卡信息 ====================
+    
+    def get_sim_info(self) -> Dict[str, Any]:
         """
-        获取设备运行时间
+        获取 SIM 卡信息
         
         Returns:
-            运行时间字符串，如 "16天 22小时 12分钟 42秒"
+            {
+                "SIMStatus": "1",  # 1=正常
+                "IMEI": "868927053245678",
+                "IMSI": "460011234567890",
+                "NetworkMode": "3",  # 1=3G, 2=4G, 3=5G
+                "CarrierName": "中国移动",
+                "PhoneNumber": "13800138000",
+                "RegisterStatus": "1"  # 1=已注册
+            }
         """
+        xml_paths = {
+            "SIMStatus": "X_FH_MobileNetwork.SIM.1.SIMStatus",
+            "IMEI": "X_FH_MobileNetwork.SIM.1.IMEI",
+            "IMSI": "X_FH_MobileNetwork.SIM.1.IMSI",
+            "NetworkMode": "X_FH_MobileNetwork.SIM.1.NetworkMode",
+            "CarrierName": "X_FH_MobileNetwork.SIM.1.CarrierName",
+            "PhoneNumber": "X_FH_MobileNetwork.SIM.1.PhoneNumber",
+            "RegisterStatus": "X_FH_MobileNetwork.SIM.1.RegisterStatus",
+            "RoamingConnectStatus": "X_FH_MobileNetwork.SIM.1.RoamingConnectStatus"
+        }
+        
         try:
-            result = self._api_get("get_device_info", no_check=True)
-            if result:
-                data = json.loads(result)
-                # 运行时间可能在 uptime 或 runtime 字段
-                return data.get("uptime", data.get("runtime", ""))
+            return self._api_post_encrypted("get_value_by_xmlnode", xml_paths)
         except Exception as e:
-            logger.error(f"获取运行时间失败: {e}")
-        return ""
+            logger.error(f"获取 SIM 信息失败: {e}")
+            return {}
     
-    def get_cpu_temperature(self) -> str:
+    # ==================== 信号信息 ====================
+    
+    def get_signal_info(self) -> Dict[str, Any]:
         """
-        获取 CPU 温度
+        获取信号信息
         
         Returns:
-            CPU 温度字符串，如 "35.5 ℃"
+            {
+                "RSRP": "-85",  # dBm
+                "RSSI": "-65",  # dBm
+                "SINR": "15",   # dB
+                "RSRQ": "-10",  # dB
+                "BAND": "41",   # 频段
+                "PCI": "123",   # 物理小区ID
+                "WorkMode": "SA",  # 工作模式
+                ...
+            }
         """
+        xml_paths = {
+            "RSRP": "X_FH_MobileNetwork.RadioSignalParameter.RSRP",
+            "RSSI": "X_FH_MobileNetwork.RadioSignalParameter.RSSI",
+            "SINR": "X_FH_MobileNetwork.RadioSignalParameter.SINR",
+            "RSRQ": "X_FH_MobileNetwork.RadioSignalParameter.RSRQ",
+            "BAND": "X_FH_MobileNetwork.RadioSignalParameter.BAND",
+            "PCI": "X_FH_MobileNetwork.RadioSignalParameter.PCI",
+            "WorkMode": "X_FH_MobileNetwork.RadioSignalParameter.WorkMode",
+            "SSB_RSRP": "X_FH_MobileNetwork.RadioSignalParameter.SSB_RSRP",
+            "SSB_SINR": "X_FH_MobileNetwork.RadioSignalParameter.SSB_SINR",
+            "NR_Band": "X_FH_MobileNetwork.RadioSignalParameter.NR_Band",
+            "NR_Power": "X_FH_MobileNetwork.RadioSignalParameter.NR_Power",
+            "LTE_Power": "X_FH_MobileNetwork.RadioSignalParameter.LTE_Power",
+            "NetworkMode": "X_FH_MobileNetwork.SIM.1.NetworkMode"
+        }
+        
         try:
-            result = self._api_get("get_device_info", no_check=True)
-            if result:
-                data = json.loads(result)
-                return data.get("cpu_temp", data.get("temperature", ""))
-        except Exception as e:
-            logger.error(f"获取 CPU 温度失败: {e}")
-        return ""
-    
-    # ==================== 网络状态 ====================
-    
-    def get_signal_info(self) -> SignalInfo:
-        """获取信号信息"""
-        try:
-            result = self._api_post("get_signal_info")
-            data = json.loads(result)
-            return SignalInfo.from_dict(data)
+            return self._api_post_encrypted("get_value_by_xmlnode", xml_paths)
         except Exception as e:
             logger.error(f"获取信号信息失败: {e}")
-            return SignalInfo()
+            return {}
     
-    def get_network_info(self) -> NetworkInfo:
-        """获取网络信息"""
+    # ==================== 网络流量 ====================
+    
+    def get_traffic_stats(self) -> Dict[str, Any]:
+        """
+        获取流量统计
+        
+        Returns:
+            {
+                "TodayTotalTxBytes": "1234567890",  # 今日发送字节
+                "TodayTotalRxBytes": "9876543210",  # 今日接收字节
+                "MonthTxBytes": "12345678901234",   # 本月发送字节
+                "MonthRxBytes": "98765432109876"    # 本月接收字节
+            }
+        """
+        xml_paths = {
+            "TodayTotalTxBytes": "X_FH_MobileNetwork.TrafficStats.TodayTotalTxBytes",
+            "TodayTotalRxBytes": "X_FH_MobileNetwork.TrafficStats.TodayTotalRxBytes",
+            "TodayTotalBytes": "X_FH_MobileNetwork.TrafficStats.TodayTotalBytes",
+            "MonthTxBytes": "X_FH_MobileNetwork.TrafficStats.MonthTxBytes",
+            "MonthRxBytes": "X_FH_MobileNetwork.TrafficStats.MonthRxBytes",
+            "MonthTotalBytes": "X_FH_MobileNetwork.TrafficStats.MonthTotalBytes"
+        }
+        
         try:
-            result = self._api_post("get_network_info")
-            data = json.loads(result)
-            return NetworkInfo.from_dict(data)
+            return self._api_post_encrypted("get_value_by_xmlnode", xml_paths)
         except Exception as e:
-            logger.error(f"获取网络信息失败: {e}")
-            return NetworkInfo()
+            logger.error(f"获取流量统计失败: {e}")
+            return {}
     
     # ==================== 短信管理 ====================
     
     def get_new_sms_flag(self) -> bool:
         """检查是否有新短信"""
         try:
-            result = self._api_get("get_new_sms")
-            data = json.loads(result)
+            url = f"{self.base_url}/api/tmp/FHNCAPIS?ajaxmethod=get_new_sms"
+            resp = self.session.get(url, timeout=30)
+            data = resp.json()
             return data.get("new_sms_flag", "false") == "true"
         except:
             return False
@@ -303,21 +449,34 @@ class CPEClient:
     def get_sms_list(self) -> List[SMSMessage]:
         """获取短信列表"""
         try:
-            result = self._api_post("get_sms_data")
-            data = json.loads(result)
+            sessionid = self._get_sessionid()
             
-            messages = []
-            for session_id, session_data in data.items():
-                if isinstance(session_data, dict):
-                    phone = session_data.get("session_phone", "")
-                    for msg_id, msg_data in session_data.items():
-                        if isinstance(msg_data, dict) and "msg_content" in msg_data:
-                            messages.append(SMSMessage.from_dict(msg_data, phone))
+            body = {
+                "dataObj": None,
+                "ajaxmethod": "get_sms_data",
+                "sessionid": sessionid
+            }
+            encrypted = AESEncryptor.encrypt(json.dumps(body), sessionid[:16])
             
-            return messages
+            url = f"{self.base_url}/api/tmp/FHAPIS?_={int(time.time() * 1000)}"
+            resp = self.session.post(url, data=encrypted, timeout=30)
+            
+            if resp.text.strip():
+                decrypted = AESEncryptor.decrypt(resp.text.strip(), sessionid[:16])
+                data = json.loads(decrypted)
+                
+                messages = []
+                for session_id, session_data in data.items():
+                    if isinstance(session_data, dict):
+                        phone = session_data.get("session_phone", "")
+                        for msg_id, msg_data in session_data.items():
+                            if isinstance(msg_data, dict) and "msg_content" in msg_data:
+                                messages.append(SMSMessage.from_dict(msg_data, phone))
+                
+                return messages
         except Exception as e:
             logger.error(f"获取短信列表失败: {e}")
-            return []
+        return []
     
     def get_unread_sms(self) -> List[SMSMessage]:
         """获取未读短信"""
@@ -327,59 +486,47 @@ class CPEClient:
     def mark_sms_read(self, sms_id: str) -> bool:
         """标记短信为已读"""
         try:
-            data = {
-                "url": {
-                    f"smsIsopend{sms_id}": f"InternetGatewayDevice.X_FH_MobileNetwork.SMS_Recv.SMS_RecvMsg.{sms_id}.isOpened"
+            # 使用 set_value_by_xmlnode API
+            sessionid = self._get_sessionid()
+            
+            body = {
+                "dataObj": {
+                    "url": {
+                        f"sms{sms_id}": f"InternetGatewayDevice.X_FH_MobileNetwork.SMS_Recv.SMS_RecvMsg.{sms_id}.isOpened"
+                    },
+                    "value": {
+                        f"sms{sms_id}": "1"
+                    }
                 },
-                "value": {
-                    f"smsIsopend{sms_id}": "1"
-                }
+                "ajaxmethod": "set_value_by_xmlnode",
+                "sessionid": sessionid
             }
-            self._api_post("set_value_by_xmlnode", data)
+            encrypted = AESEncryptor.encrypt(json.dumps(body), sessionid[:16])
+            
+            url = f"{self.base_url}/api/tmp/FHAPIS?_={int(time.time() * 1000)}"
+            self.session.post(url, data=encrypted, timeout=30)
             return True
         except Exception as e:
             logger.error(f"标记短信已读失败: {e}")
             return False
-    
-    # ==================== WiFi 管理 ====================
-    
-    def get_wifi_info(self) -> WiFiInfo:
-        """获取 WiFi 信息"""
-        try:
-            result = self._api_post("get_wifi_info")
-            data = json.loads(result)
-            return WiFiInfo.from_dict(data)
-        except Exception as e:
-            logger.error(f"获取 WiFi 信息失败: {e}")
-            return WiFiInfo()
-    
-    # ==================== 连接设备 ====================
-    
-    def get_connected_devices(self) -> List[ConnectedDevice]:
-        """获取已连接设备列表"""
-        try:
-            result = self._api_post("get_station_list")
-            data = json.loads(result)
-            
-            devices = []
-            if isinstance(data, dict) and "data" in data:
-                for item in data["data"]:
-                    devices.append(ConnectedDevice.from_dict(item))
-            elif isinstance(data, list):
-                for item in data:
-                    devices.append(ConnectedDevice.from_dict(item))
-            
-            return devices
-        except Exception as e:
-            logger.error(f"获取连接设备失败: {e}")
-            return []
     
     # ==================== 系统操作 ====================
     
     def reboot(self) -> bool:
         """重启路由器"""
         try:
-            self._api_post("reboot_device")
+            # 重启需要特殊的 API
+            sessionid = self._get_sessionid()
+            
+            body = {
+                "dataObj": None,
+                "ajaxmethod": "reboot_device",
+                "sessionid": sessionid
+            }
+            encrypted = AESEncryptor.encrypt(json.dumps(body), sessionid[:16])
+            
+            url = f"{self.base_url}/api/tmp/FHAPIS?_={int(time.time() * 1000)}"
+            self.session.post(url, data=encrypted, timeout=30)
             return True
         except Exception as e:
             logger.error(f"重启失败: {e}")
