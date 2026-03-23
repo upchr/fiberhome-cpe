@@ -374,6 +374,18 @@ class SMSWatcher:
     
     def _run(self):
         """运行监听循环"""
+        # 首次启动时，记录所有现有短信 ID（不发送通知）
+        try:
+            if self._client.login(self.username, self.password)[0]:
+                sms_list = self._client.get_sms_list()
+                for sms in sms_list:
+                    if sms.id:
+                        self._processed_sms_ids.add(sms.id)
+                self._client.logout()
+                logger.info(f"已记录 {len(self._processed_sms_ids)} 条历史短信，不会重复通知")
+        except Exception as e:
+            logger.warning(f"初始化短信缓存失败: {e}")
+        
         while self._running:
             try:
                 # 登录

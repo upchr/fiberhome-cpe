@@ -264,8 +264,8 @@ class CPEClient:
         return [sms for sms in self.get_sms_list() if not sms.is_read and not sms.is_sent]
     
     def has_new_sms(self) -> bool:
-        """检查是否有新短信（通过比较短信数量）"""
-        # get_new_sms API 返回 403，改用获取短信列表判断
+        """检查是否有短信（通过短信数量判断）"""
+        # get_new_sms API 返回 403，改用获取短信列表
         sms_list = self.get_sms_list()
         return len(sms_list) > 0
     
