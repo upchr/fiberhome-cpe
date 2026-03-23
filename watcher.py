@@ -180,10 +180,14 @@ class SMSWatcher:
         self.notifiers.append(notifier)
     
     def _send_notification(self, sms: SMSMessage):
+        """发送通知"""
         title = f"短信来自 {sms.phone}"
+        # 带上接收时间
+        content = f"接收时间: {sms.time}\n\n{sms.content}"
+        
         for notifier in self.notifiers:
             try:
-                notifier.notify(title, sms.content, time=sms.time)
+                notifier.notify(title, content, time=sms.time)
                 logger.info(f"已发送通知: {title}")
             except Exception as e:
                 logger.error(f"发送通知失败: {e}")

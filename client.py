@@ -182,6 +182,54 @@ class CPEClient:
                 pass
         return {}
     
+    def get_device_info_formatted(self) -> str:
+        """
+        获取格式化的设备信息
+        
+        Returns:
+            格式化的设备信息文本
+        """
+        # 获取基本信息
+        device_info = self.get_device_info()
+        
+        # 获取详细信息
+        details = self.get_device_details()
+        
+        # 温度
+        temp_5g = details.get("Modem5GTemperature", "0")
+        temp_str = ""
+        if temp_5g:
+            try:
+                temp_c = int(temp_5g) / 1000
+                temp_str = f"{temp_c:.1f} ℃"
+            except:
+                pass
+        
+        # 运行时间
+        uptime = self.get_uptime()
+        uptime_str = ""
+        if uptime:
+            uptime_str = f"{uptime.get('days', 0)}天 {uptime.get('hours', 0)}小时 {uptime.get('minutes', 0)}分钟 {uptime.get('seconds', 0)}秒"
+        
+        # 构造格式化文本
+        lines = [
+            "📋 **基本信息**",
+            f"• 产品名称: 5G CPE",
+            f"• 设备型号: {device_info.model_name or details.get('ModelName', '-')}",
+            f"• 序列号: {details.get('SerialNumber', '-')}",
+            f"• MAC 地址: {device_info.mac_address or '-'}",
+            "",
+            "📦 **版本信息**",
+            f"• 软件版本: {details.get('SoftwareVersion', '-')}",
+            f"• 硬件版本: {details.get('HardwareVersion', '-')}",
+            "",
+            "📊 **状态信息**",
+            f"• 运行时间: {uptime_str or '-'}",
+            f"• CPU 温度: {temp_str or '-'}",
+        ]
+        
+        return "\n".join(lines)
+    
     def get_device_details(self) -> Dict[str, Any]:
         """获取设备详细信息"""
         result = self._request_post({
