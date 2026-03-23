@@ -11,12 +11,13 @@ CPE API - 烽火 5G CPE 路由器 API 客户端
 """
 
 from .client import CPEClient
+from .client_browser import CPEClientBrowser
 from .models import DeviceInfo, SMSMessage, WiFiInfo, ConnectedDevice, SignalInfo, NetworkInfo, DataUsage
 from .watcher import SMSWatcher, BarkNotifier, WebhookNotifier, FeishuNotifier, FeishuWebhookNotifier, Notifier
 
 __version__ = "1.0.0"
 __all__ = [
-    "CPEClient",
+    "CPEClient", "CPEClientBrowser",
     "DeviceInfo", "SMSMessage", "WiFiInfo", "ConnectedDevice", "SignalInfo", "NetworkInfo", "DataUsage",
     "SMSWatcher", "BarkNotifier", "WebhookNotifier", "FeishuNotifier", "FeishuWebhookNotifier", "Notifier"
 ]

@@ -32,11 +32,17 @@ class DeviceInfo:
             model_name=data.get("model_name", ""),
             operator_name=data.get("operator_name", ""),
             serial_number=data.get("serial_number", ""),
-            firmware_version=data.get("firmware_version", ""),
-            mac_address=data.get("mac_address", ""),
+            firmware_version=data.get("firmware_version", data.get("software_version", "")),
+            mac_address=data.get("mac_address", data.get("brmac", "")),
             imei=data.get("imei", ""),
             imsi=data.get("imsi", ""),
             i18n=data.get("i18n", "zh"),
+            # 新增字段
+            product_name=data.get("product_name", data.get("model_name", "")),
+            device_model=data.get("device_model", data.get("model_name", "")),
+            uptime=data.get("uptime", data.get("runtime", "")),
+            cpu_temp=data.get("cpu_temp", data.get("temperature", "")),
+            lan_ip=data.get("lan_ip", data.get("IPInterfaceIPAddress", "192.168.1.1")),
         )
 
 
