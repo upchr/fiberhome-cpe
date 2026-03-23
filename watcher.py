@@ -374,15 +374,26 @@ class SMSWatcher:
     
     def _run(self):
         """运行监听循环"""
-        # 首次启动时，记录所有现有短信 ID（不发送通知）
+        # 首次启动时，处理未读短信并记录所有短信 ID
         try:
             if self._client.login(self.username, self.password)[0]:
                 sms_list = self._client.get_sms_list()
+                
+                # 找出未读短信（接收的且未读的）
+                unread_sms = [sms for sms in sms_list if not sms.is_read and not sms.is_sent]
+                
+                # 发送未读短信通知
+                if unread_sms:
+                    logger.info(f"发现 {len(unread_sms)} 条未读短信")
+                    self._handle_new_sms(unread_sms)
+                
+                # 记录所有短信 ID（避免重复通知）
                 for sms in sms_list:
                     if sms.id:
                         self._processed_sms_ids.add(sms.id)
+                
+                logger.info(f"已记录 {len(self._processed_sms_ids)} 条短信 ID")
                 self._client.logout()
-                logger.info(f"已记录 {len(self._processed_sms_ids)} 条历史短信，不会重复通知")
         except Exception as e:
             logger.warning(f"初始化短信缓存失败: {e}")
         
