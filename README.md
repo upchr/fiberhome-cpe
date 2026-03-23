@@ -1,67 +1,121 @@
-# CPE API - 烽火 5G CPE 路由器 API 客户端
+# CPE API - 烽火 5G CPE 路由器 API
 
-[English](#english) | [中文](#中文)
+FastAPI 服务 + 短信监控转发
 
-## 中文
+## 功能
 
-### 功能
+- 📡 设备信息 API（温度、信号、流量等）
+- 📩 短信管理 API
+- 🔄 后台短信监控转发
 
-- ✅ 登录认证（AES 加密）
-- ✅ 心跳保活
-- ✅ 短信监听与转发
-- ✅ 多通知渠道支持
-  - 飞书 Webhook 机器人（推荐）
-  - 飞书应用机器人
-  - Bark（iOS 推送）
-  - 自定义 Webhook
+## 快速开始
 
-### 安装
+### 1. 安装依赖
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 配置
+### 2. 配置
 
-1. 复制配置模板：
 ```bash
 cp .env.example .env
+# 编辑 .env 填写配置
 ```
 
-2. 编辑 `.env` 文件：
+### 3. 启动服务
+
 ```bash
-# CPE 配置
-CPE_HOST=http://192.168.1.1
-CPE_USERNAME=admin
-CPE_PASSWORD=your-password
+# 开发模式
+python3 -m uvicorn main:app --reload
 
-# 飞书 Webhook（推荐）
-FEISHU_WEBHOOK=https://open.feishu.cn/open-apis/bot/v2/hook/xxx
+# 生产模式
+python3 -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-### 使用
+### 4. 访问 API 文档
 
-**命令行启动：**
+打开 http://localhost:8000/docs
+
+## API 接口
+
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `/api/device/info` | GET | 获取设备信息 |
+| `/api/device/info/formatted` | GET | 获取格式化设备信息 |
+| `/api/device/temperature` | GET | 获取温度 |
+| `/api/device/usage` | GET | 获取系统使用率 |
+| `/api/device/uptime` | GET | 获取运行时间 |
+| `/api/sms/list` | GET | 获取短信列表 |
+| `/api/sms/unread` | GET | 获取未读短信 |
+| `/api/watcher/status` | GET | 获取监控状态 |
+| `/api/watcher/start` | POST | 启动短信监控 |
+| `/api/watcher/stop` | POST | 停止短信监控 |
+
+## 配置说明
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `CPE_HOST` | CPE 地址 | `http://192.168.1.1` |
+| `CPE_USERNAME` | 用户名 | `admin` |
+| `CPE_PASSWORD` | 密码 | - |
+| `CHECK_INTERVAL` | 检查间隔（秒） | `3.0` |
+| `AUTO_START_WATCHER` | 启动时自动开启监控 | `false` |
+| `BARK_KEY` | Bark 推送 Key | - |
+| `FEISHU_WEBHOOK` | 飞书 Webhook URL | - |
+| `WEBHOOK_URL` | 自定义 Webhook URL | - |
+
+## 示例
+
+### 获取设备信息
+
 ```bash
-python3 sms_forwarder.py
+curl http://localhost:8000/api/device/info
 ```
 
-**代码调用：**
+响应：
+```json
+{
+  "success": true,
+  "message": "获取成功",
+  "data": {
+    "product_name": "5G CPE",
+    "model_name": "LG6121F",
+    "serial_number": "MTRTGJ401781ACAB20",
+    "temperature": {"5g": 36.2, "unit": "℃"}
+  }
+}
+```
+
+### 获取格式化设备信息
+
+```bash
+curl http://localhost:8000/api/device/info/formatted
+```
+
+响应：
+```json
+{
+  "success": true,
+  "data": "📋 **基本信息**\n• 产品名称: 5G CPE\n• 设备型号: LG6121F\n..."
+}
+```
+
+## 作为库使用
+
 ```python
 from cpe_api import CPEClient, SMSWatcher, FeishuWebhookNotifier
 
-# 简单使用
+# 获取设备信息
 client = CPEClient("http://192.168.1.1")
 client.login("admin", "password")
 
-# 检查新短信
-if client.get_new_sms_flag():
-    for sms in client.get_unread_sms():
-        print(f"[{sms.phone}] {sms.content}")
+temp = client.get_temperature()
+print(f"5G 温度: {temp['5g']}°C")
 
 client.logout()
 
-# 持续监听
+# 短信监控
 watcher = SMSWatcher(
     host="http://192.168.1.1",
     username="admin",
@@ -70,48 +124,3 @@ watcher = SMSWatcher(
 )
 watcher.start()
 ```
-
-### 获取飞书 Webhook
-
-1. 打开飞书群组
-2. 群设置 → 群机器人 → 添加机器人 → 自定义机器人
-3. 复制 Webhook URL
-
----
-
-## English
-
-A Python client for Fiberhome 5G CPE routers with SMS forwarding support.
-
-### Features
-
-- AES encrypted authentication
-- Heartbeat keep-alive
-- SMS monitoring and forwarding
-- Multiple notification channels
-
-### Installation
-
-```bash
-pip install -r requirements.txt
-```
-
-### Usage
-
-```python
-from cpe_api import CPEClient
-
-client = CPEClient("http://192.168.1.1")
-client.login("admin", "password")
-
-# Check for new SMS
-if client.get_new_sms_flag():
-    for sms in client.get_unread_sms():
-        print(f"[{sms.phone}] {sms.content}")
-
-client.logout()
-```
-
-### License
-
-MIT
