@@ -376,7 +376,8 @@ class SMSWatcher:
         """运行监听循环"""
         # 首次启动时，处理未读短信并记录所有短信 ID
         try:
-            if self._client.login(self.username, self.password)[0]:
+            success, _ = self._client.login(self.username, self.password)
+            if success:
                 sms_list = self._client.get_sms_list()
                 
                 # 找出未读短信（接收的且未读的）
@@ -392,55 +393,30 @@ class SMSWatcher:
                     if sms.id:
                         self._processed_sms_ids.add(sms.id)
                 
-                logger.info(f"已记录 {len(self._processed_sms_ids)} 条短信 ID")
-                self._client.logout()
+                logger.info(f"已记录 {len(self._processed_sms_ids)} 条短信 ID，开始监听新短信")
         except Exception as e:
-            logger.warning(f"初始化短信缓存失败: {e}")
+            logger.warning(f"初始化失败: {e}")
         
         while self._running:
             try:
-                # 登录
-                if not self._client.is_logged_in():
-                    logger.info("尝试登录...")
+                # 直接尝试获取短信列表（如果失败则重新登录）
+                try:
+                    sms_list = self._client.get_sms_list()
+                except Exception:
+                    # 获取失败，尝试重新登录
+                    logger.info("获取短信失败，尝试重新登录...")
                     success, message = self._client.login(self.username, self.password)
-                    
                     if not success:
                         logger.warning(f"登录失败: {message}")
                         time.sleep(self.wait_after_logout)
                         continue
-                    
-                    self._last_login_time = time.time()
-                    logger.info("登录成功")
+                    sms_list = self._client.get_sms_list()
                 
-                # 检查心跳
-                heartbeat_ok = self._client.heartbeat()
-                logger.debug(f"心跳结果: {heartbeat_ok}")
-                
-                if not heartbeat_ok:
-                    logger.warning("心跳失败，可能被登出")
-                    
-                    # 调用回调
-                    if self.on_logout:
-                        self.on_logout()
-                    
-                    # 判断是否需要等待
-                    if self._last_login_time:
-                        elapsed = time.time() - self._last_login_time
-                        # 如果是会话过期（4-5分钟），立即重新登录
-                        if 4 * 60 < elapsed < 5 * 60:
-                            logger.info("会话过期，立即重新登录")
-                        else:
-                            logger.info(f"被其他用户登出，等待 {self.wait_after_logout} 秒后重试")
-                            time.sleep(self.wait_after_logout)
-                    
-                    continue
-                
-                # 检查新短信（直接获取短信列表）
-                sms_list = self._client.get_sms_list()
+                # 检查新短信
                 if sms_list:
-                    # 过滤出未处理的短信
                     new_sms = [sms for sms in sms_list if sms.id and sms.id not in self._processed_sms_ids]
                     if new_sms:
+                        logger.info(f"发现 {len(new_sms)} 条新短信")
                         self._handle_new_sms(new_sms)
                 
                 # 等待下次检查
